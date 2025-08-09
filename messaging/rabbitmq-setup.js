@@ -299,16 +299,22 @@ class RabbitMQSetup {
    */
   async close() {
     try {
-      if (this.channel) {
+      if (this.channel && !this.channel.connection.destroyed) {
         await this.channel.close();
+        this.channel = null;
       }
-      if (this.connection) {
+      if (this.connection && !this.connection.connection.destroyed) {
         await this.connection.close();
+        this.connection = null;
       }
       this.isConnected = false;
       console.log('✅ RabbitMQ connection closed');
     } catch (error) {
       console.error('❌ Error closing RabbitMQ connection:', error);
+      // Force cleanup even if close fails
+      this.channel = null;
+      this.connection = null;
+      this.isConnected = false;
     }
   }
 }
