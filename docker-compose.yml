@@ -1,0 +1,71 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: browser-automation-postgres
+    environment:
+      POSTGRES_DB: browser_automation
+      POSTGRES_USER: automation_user
+      POSTGRES_PASSWORD: automation_password
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U automation_user -d browser_automation"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - automation-network
+
+  # RabbitMQ Message Broker
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    container_name: browser-automation-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: admin
+      RABBITMQ_DEFAULT_VHOST: /
+    ports:
+      - "5672:5672"    # AMQP port
+      - "15672:15672"  # Management UI
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+      - ./messaging/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - automation-network
+
+  # Redis for caching (optional but recommended)
+  redis:
+    image: redis:7-alpine
+    container_name: browser-automation-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - automation-network
+
+volumes:
+  postgres_data:
+  rabbitmq_data:
+  redis_data:
+
+networks:
+  automation-network:
+    driver: bridge

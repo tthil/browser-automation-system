@@ -1,0 +1,75 @@
+{
+  "name": "browser-automation-system",
+  "version": "1.0.0",
+  "description": "Distributed browser automation testing system for global navigation testing",
+  "main": "index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "client": "node src/client/index.js",
+    "worker": "node src/worker/index.js",
+    "migrate": "node database/migrate.js",
+    "migrate:rollback": "node database/migrate.js --rollback",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "lint": "eslint src/",
+    "lint:fix": "eslint src/ --fix",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "docker:logs": "docker-compose logs -f",
+    "setup": "npm run docker:up && sleep 10 && npm run migrate"
+  },
+  "keywords": [
+    "browser-automation",
+    "puppeteer",
+    "testing",
+    "distributed-system",
+    "nodejs",
+    "rabbitmq",
+    "postgresql"
+  ],
+  "author": "Browser Automation Team",
+  "license": "MIT",
+  "dependencies": {
+    "amqplib": "^0.10.3",
+    "pg": "^8.11.3",
+    "puppeteer": "^21.5.2",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "fingerprint-injector": "^2.1.0",
+    "axios": "^1.6.2",
+    "dotenv": "^16.3.1",
+    "uuid": "^9.0.1",
+    "winston": "^3.11.0",
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "helmet": "^7.1.0",
+    "compression": "^1.7.4",
+    "rate-limiter-flexible": "^4.0.1",
+    "ioredis": "^5.3.2",
+    "knex": "^3.0.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2",
+    "jest": "^29.7.0",
+    "supertest": "^6.3.3",
+    "eslint": "^8.55.0",
+    "eslint-config-standard": "^17.1.0",
+    "eslint-plugin-import": "^2.29.0",
+    "eslint-plugin-n": "^16.4.0",
+    "eslint-plugin-promise": "^6.1.1",
+    "@types/jest": "^29.5.8"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/your-org/browser-automation-system.git"
+  },
+  "bugs": {
+    "url": "https://github.com/your-org/browser-automation-system/issues"
+  },
+  "homepage": "https://github.com/your-org/browser-automation-system#readme"
+}
