@@ -153,4 +153,51 @@ describe('Worker Service', () => {
       expect(() => workerService.validateTaskData(taskData)).not.toThrow();
     });
   });
+
+  describe('Fingerprinting Integration', () => {
+    test('should initialize fingerprint manager', () => {
+      expect(workerService.fingerprintManager).toBeDefined();
+      expect(workerService.config.useFingerprinting).toBe(true);
+      expect(workerService.config.fingerprintProfile).toBe('random');
+    });
+
+    test('should get fingerprint profile for task', () => {
+      const taskData = {
+        device: 'mobile',
+        os: 'iOS'
+      };
+
+      const profile = workerService.getFingerprintProfile(taskData);
+      expect(profile).toBeDefined();
+      expect(profile.key).toBeDefined();
+      expect(profile.device).toBeDefined();
+      expect(profile.os).toBeDefined();
+    });
+
+    test('should find matching profile by device/OS', () => {
+      const profileKey = workerService.findMatchingProfile('mobile', 'iOS');
+      expect(profileKey).toBeDefined();
+      expect(profileKey).toContain('mobile_ios');
+    });
+
+    test('should handle profile rotation', () => {
+      // Set config to rotate
+      workerService.config.fingerprintProfile = 'rotate';
+      
+      const profile1 = workerService.getFingerprintProfile({});
+      const profile2 = workerService.getFingerprintProfile({});
+      
+      expect(profile1).toBeDefined();
+      expect(profile2).toBeDefined();
+    });
+
+    test('should include fingerprinting in health check', async () => {
+      const health = await workerService.healthCheck();
+      
+      expect(health.useFingerprinting).toBe(true);
+      expect(health.fingerprintProfile).toBe('random');
+      expect(health.fingerprintManager).toBeDefined();
+      expect(health.fingerprintManager.total).toBeGreaterThan(0);
+    });
+  });
 });

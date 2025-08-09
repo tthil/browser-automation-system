@@ -1,6 +1,7 @@
 const puppeteer = require('puppeteer');
 const { EventEmitter } = require('events');
 const { ProxyManager } = require('../proxy/proxy-manager');
+const { FingerprintManager } = require('../fingerprinting/fingerprint-manager');
 
 /**
  * Worker Service - Core Framework
@@ -15,6 +16,7 @@ class WorkerService extends EventEmitter {
     this.activeTasks = new Map();
     this.browser = null;
     this.proxyManager = new ProxyManager();
+    this.fingerprintManager = new FingerprintManager();
     
     // Configuration
     this.config = {
@@ -27,7 +29,9 @@ class WorkerService extends EventEmitter {
       headless: process.env.HEADLESS !== 'false',
       vncPort: parseInt(process.env.VNC_PORT) || 5901,
       display: process.env.DISPLAY || ':99',
-      useProxy: process.env.USE_PROXY === 'true'
+      useProxy: process.env.USE_PROXY === 'true',
+      useFingerprinting: process.env.USE_FINGERPRINTING !== 'false',
+      fingerprintProfile: process.env.FINGERPRINT_PROFILE || 'random'
     };
   }
 
@@ -288,8 +292,14 @@ class WorkerService extends EventEmitter {
       const page = await taskBrowser.newPage();
       
       try {
-        // Configure page based on device/OS
-        await this.configurePage(page, taskData);
+        // Apply fingerprinting if enabled
+        if (this.config.useFingerprinting) {
+          const fingerprintProfile = this.getFingerprintProfile(taskData);
+          await this.fingerprintManager.applyFingerprint(page, fingerprintProfile);
+        } else {
+          // Configure page based on device/OS (legacy method)
+          await this.configurePage(page, taskData);
+        }
         
         // Set proxy authentication if available
         if (proxyConfig && proxyConfig.username && proxyConfig.password) {
@@ -391,6 +401,57 @@ class WorkerService extends EventEmitter {
     };
     
     return userAgents[device]?.[os] || userAgents.desktop.Windows;
+  }
+
+  /**
+   * Get fingerprint profile for task
+   * @param {Object} taskData - Task data containing device/OS preferences
+   * @returns {Object} Fingerprint profile
+   */
+  getFingerprintProfile(taskData) {
+    // Check if task specifies a specific fingerprint profile
+    if (taskData.fingerprintProfile) {
+      return this.fingerprintManager.getDeviceProfile(taskData.fingerprintProfile);
+    }
+    
+    // Check if task specifies device/OS preferences
+    if (taskData.device && taskData.os) {
+      const profileKey = this.findMatchingProfile(taskData.device, taskData.os);
+      if (profileKey) {
+        return this.fingerprintManager.getDeviceProfile(profileKey);
+      }
+    }
+    
+    // Use configured profile or random
+    if (this.config.fingerprintProfile === 'rotate') {
+      return this.fingerprintManager.getNextProfile();
+    }
+    
+    return this.fingerprintManager.getDeviceProfile(this.config.fingerprintProfile);
+  }
+
+  /**
+   * Find matching fingerprint profile based on device/OS
+   * @param {string} device - Device type (mobile/desktop)
+   * @param {string} os - Operating system
+   * @returns {string|null} Matching profile key
+   */
+  findMatchingProfile(device, os) {
+    const profiles = this.fingerprintManager.getAvailableProfiles();
+    
+    // Find exact match first
+    let match = profiles.find(p => 
+      p.type === device.toLowerCase() && 
+      p.os.toLowerCase() === os.toLowerCase()
+    );
+    
+    if (match) return match.key;
+    
+    // Find partial match by device type
+    match = profiles.find(p => p.type === device.toLowerCase());
+    if (match) return match.key;
+    
+    return null;
   }
 
   /**
@@ -549,6 +610,7 @@ class WorkerService extends EventEmitter {
    */
   async healthCheck() {
     const proxyHealth = this.config.useProxy ? await this.proxyManager.healthCheck() : null;
+    const fingerprintStats = this.config.useFingerprinting ? this.fingerprintManager.getProfileStats() : null;
     
     return {
       status: this.isRunning ? 'healthy' : 'stopped',
@@ -557,7 +619,10 @@ class WorkerService extends EventEmitter {
       vncEnabled: this.config.enableVnc,
       debugMode: this.config.debugMode,
       useProxy: this.config.useProxy,
+      useFingerprinting: this.config.useFingerprinting,
+      fingerprintProfile: this.config.fingerprintProfile,
       proxyManager: proxyHealth,
+      fingerprintManager: fingerprintStats,
       timestamp: new Date().toISOString()
     };
   }
