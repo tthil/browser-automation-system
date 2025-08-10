@@ -1,5 +1,5 @@
 -- Browser Automation System Database Schema
--- Version: 1.0
+-- Version: 1.0 (Fixed Foreign Key References)
 -- Created: 2025-08-10
 
 -- Enable UUID extension
@@ -7,8 +7,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- Sessions table - stores session configurations
 CREATE TABLE sessions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    session_id VARCHAR(255) UNIQUE NOT NULL,
+    session_id VARCHAR(255) PRIMARY KEY,
     tasks_24h INTEGER NOT NULL,
     countries TEXT[] NOT NULL,
     main_page_url TEXT NOT NULL,
@@ -22,14 +21,15 @@ CREATE TABLE sessions (
     completed_at TIMESTAMP WITH TIME ZONE,
     total_tasks_generated INTEGER DEFAULT 0,
     tasks_completed INTEGER DEFAULT 0,
-    tasks_failed INTEGER DEFAULT 0
+    tasks_failed INTEGER DEFAULT 0,
+    last_error TEXT
 );
 
 -- Tasks table - stores individual task instances
 CREATE TABLE tasks (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     correlation_id UUID UNIQUE NOT NULL,
-    session_id UUID REFERENCES sessions(id) ON DELETE CASCADE,
+    session_id VARCHAR(255) REFERENCES sessions(session_id) ON DELETE CASCADE,
     country VARCHAR(5) NOT NULL,
     device VARCHAR(20) NOT NULL,
     os VARCHAR(20) NOT NULL,
@@ -64,7 +64,7 @@ CREATE TABLE task_responses (
 -- Statistics table - aggregated statistics
 CREATE TABLE statistics (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    session_id UUID REFERENCES sessions(id) ON DELETE CASCADE,
+    session_id VARCHAR(255) REFERENCES sessions(session_id) ON DELETE CASCADE,
     date DATE NOT NULL,
     hour INTEGER NOT NULL, -- 0-23
     country VARCHAR(5) NOT NULL,
@@ -83,7 +83,7 @@ CREATE TABLE statistics (
 -- Rate management table - tracks sending rates
 CREATE TABLE rate_management (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    session_id UUID REFERENCES sessions(id) ON DELETE CASCADE,
+    session_id VARCHAR(255) REFERENCES sessions(session_id) ON DELETE CASCADE,
     current_rate_per_minute DECIMAL(8,2) NOT NULL,
     target_rate_per_minute DECIMAL(8,2) NOT NULL,
     adjustment_factor DECIMAL(4,2) DEFAULT 1.0,
@@ -109,7 +109,26 @@ CREATE TABLE proxy_usage (
     error_message TEXT
 );
 
--- Create indexes for performance
+-- Create updated_at trigger function
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ language 'plpgsql';
+
+-- Apply updated_at triggers
+CREATE TRIGGER update_sessions_updated_at BEFORE UPDATE ON sessions
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_statistics_updated_at BEFORE UPDATE ON statistics
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_rate_management_updated_at BEFORE UPDATE ON rate_management
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- Create indexes for performance (AFTER tables are created)
 CREATE INDEX idx_sessions_status ON sessions(status);
 CREATE INDEX idx_sessions_created_at ON sessions(created_at);
 
@@ -135,29 +154,9 @@ CREATE INDEX idx_proxy_usage_task_id ON proxy_usage(task_id);
 CREATE INDEX idx_proxy_usage_country ON proxy_usage(country);
 CREATE INDEX idx_proxy_usage_request_time ON proxy_usage(request_time);
 
--- Create updated_at trigger function
-CREATE OR REPLACE FUNCTION update_updated_at_column()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW.updated_at = NOW();
-    RETURN NEW;
-END;
-$$ language 'plpgsql';
-
--- Apply updated_at triggers
-CREATE TRIGGER update_sessions_updated_at BEFORE UPDATE ON sessions
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_statistics_updated_at BEFORE UPDATE ON statistics
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_rate_management_updated_at BEFORE UPDATE ON rate_management
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
 -- Create views for common queries
 CREATE VIEW session_summary AS
 SELECT 
-    s.id,
     s.session_id,
     s.tasks_24h,
     s.countries,
@@ -212,8 +211,3 @@ VALUES (
     '1:2',
     'pending'
 );
-
--- Grant permissions (adjust as needed for your environment)
--- GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO automation_user;
--- GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO automation_user;
--- GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO automation_user;

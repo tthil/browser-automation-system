@@ -1,4 +1,5 @@
-const amqp = require('amqplib');
+const amqp = require("amqplib");
+const { JSONParser } = require("../src/utils/json-parser");
 
 /**
  * RabbitMQ Setup and Configuration
@@ -17,32 +18,33 @@ class RabbitMQSetup {
    */
   async initialize() {
     try {
-      const rabbitmqUrl = process.env.RABBITMQ_URL || 'amqp://admin:admin@localhost:5672';
-      
-      console.log('🔌 Connecting to RabbitMQ...');
+      const rabbitmqUrl =
+        process.env.RABBITMQ_URL || "amqp://admin:admin@localhost:5672";
+
+      console.log("🔌 Connecting to RabbitMQ...");
       this.connection = await amqp.connect(rabbitmqUrl);
       this.channel = await this.connection.createChannel();
 
       // Handle connection events
-      this.connection.on('error', (err) => {
-        console.error('❌ RabbitMQ connection error:', err);
+      this.connection.on("error", (err) => {
+        console.error("❌ RabbitMQ connection error:", err);
         this.isConnected = false;
       });
 
-      this.connection.on('close', () => {
-        console.log('🔌 RabbitMQ connection closed');
+      this.connection.on("close", () => {
+        console.log("🔌 RabbitMQ connection closed");
         this.isConnected = false;
       });
 
       // Setup all required queues
       await this.setupQueues();
-      
+
       this.isConnected = true;
-      console.log('✅ RabbitMQ initialized successfully');
-      
+      console.log("✅ RabbitMQ initialized successfully");
+
       return { connection: this.connection, channel: this.channel };
     } catch (error) {
-      console.error('❌ Failed to initialize RabbitMQ:', error);
+      console.error("❌ Failed to initialize RabbitMQ:", error);
       throw error;
     }
   }
@@ -53,44 +55,44 @@ class RabbitMQSetup {
   async setupQueues() {
     const queues = [
       {
-        name: 'sessions',
+        name: "sessions",
         options: {
           durable: true,
           arguments: {
-            'x-message-ttl': 24 * 60 * 60 * 1000, // 24 hours TTL
-            'x-max-length': 1000 // Max 1000 sessions in queue
-          }
-        }
+            "x-message-ttl": 24 * 60 * 60 * 1000, // 24 hours TTL
+            "x-max-length": 1000, // Max 1000 sessions in queue
+          },
+        },
       },
       {
-        name: 'tasks',
+        name: "tasks",
         options: {
           durable: true,
           arguments: {
-            'x-message-ttl': 60 * 60 * 1000, // 1 hour TTL
-            'x-max-length': 10000 // Max 10000 tasks in queue
-          }
-        }
+            "x-message-ttl": 60 * 60 * 1000, // 1 hour TTL
+            "x-max-length": 10000, // Max 10000 tasks in queue
+          },
+        },
       },
       {
-        name: 'task_responses',
+        name: "task_responses",
         options: {
           durable: true,
           arguments: {
-            'x-message-ttl': 30 * 60 * 1000, // 30 minutes TTL
-            'x-max-length': 10000
-          }
-        }
+            "x-message-ttl": 30 * 60 * 1000, // 30 minutes TTL
+            "x-max-length": 10000,
+          },
+        },
       },
       {
-        name: 'dead_letter',
+        name: "dead_letter",
         options: {
           durable: true,
           arguments: {
-            'x-message-ttl': 7 * 24 * 60 * 60 * 1000 // 7 days TTL for dead letters
-          }
-        }
-      }
+            "x-message-ttl": 7 * 24 * 60 * 60 * 1000, // 7 days TTL for dead letters
+          },
+        },
+      },
     ];
 
     // Create all queues
@@ -100,10 +102,16 @@ class RabbitMQSetup {
     }
 
     // Setup dead letter exchange
-    await this.channel.assertExchange('dead_letter_exchange', 'direct', { durable: true });
-    await this.channel.bindQueue('dead_letter', 'dead_letter_exchange', 'failed');
-    
-    console.log('✅ Dead letter exchange configured');
+    await this.channel.assertExchange("dead_letter_exchange", "direct", {
+      durable: true,
+    });
+    await this.channel.bindQueue(
+      "dead_letter",
+      "dead_letter_exchange",
+      "failed"
+    );
+
+    console.log("✅ Dead letter exchange configured");
   }
 
   /**
@@ -111,13 +119,13 @@ class RabbitMQSetup {
    */
   async setupRPC() {
     // Create RPC reply queue for responses
-    const replyQueue = await this.channel.assertQueue('', {
+    const replyQueue = await this.channel.assertQueue("", {
       exclusive: true,
-      autoDelete: true
+      autoDelete: true,
     });
 
     console.log(`✅ RPC reply queue created: ${replyQueue.queue}`);
-    return replyQueue.queue;
+    return replyQueue; // Return the full queue object
   }
 
   /**
@@ -126,7 +134,8 @@ class RabbitMQSetup {
   async sendRPCRequest(queue, message, timeout = 60000) {
     return new Promise(async (resolve, reject) => {
       const correlationId = this.generateCorrelationId();
-      const replyQueue = await this.setupRPC();
+      const replyQueueResult = await this.setupRPC();
+      const replyQueue = replyQueueResult.queue; // Extract queue name from result
 
       // Set timeout
       const timeoutId = setTimeout(() => {
@@ -134,23 +143,53 @@ class RabbitMQSetup {
       }, timeout);
 
       // Listen for response
-      await this.channel.consume(replyQueue, (response) => {
-        if (response.properties.correlationId === correlationId) {
-          clearTimeout(timeoutId);
-          this.channel.ack(response);
-          resolve(JSON.parse(response.content.toString()));
-        }
-      }, { noAck: false });
+      await this.channel.consume(
+        replyQueue,
+        (response) => {
+          if (response.properties.correlationId === correlationId) {
+            clearTimeout(timeoutId);
+            this.channel.ack(response);
+            resolve(JSON.parse(response.content.toString()));
+          }
+        },
+        { noAck: false }
+      );
+
+      // Ensure queue exists before sending (match existing queue configuration)
+      console.log(`🔍 Asserting queue: ${queue}`);
+      const queueOptions = queue === 'tasks' ? {
+        durable: true,
+        arguments: {
+          "x-message-ttl": 60 * 60 * 1000, // 1 hour TTL
+          "x-max-length": 10000, // Max 10000 tasks in queue
+        },
+      } : { durable: true };
+      
+      await this.channel.assertQueue(queue, queueOptions);
+      console.log(`✅ Queue ${queue} asserted successfully`);
 
       // Send request
-      await this.channel.sendToQueue(queue, Buffer.from(JSON.stringify(message)), {
+      console.log(`🚀 Attempting to send message to queue: ${queue}`);
+      const messageBuffer = Buffer.from(JSON.stringify(message));
+      console.log(`📦 Message size: ${messageBuffer.length} bytes`);
+      
+      const sent = this.channel.sendToQueue(queue, messageBuffer, {
         correlationId,
         replyTo: replyQueue,
         persistent: true,
-        timestamp: Date.now()
+        timestamp: Date.now(),
       });
 
-      console.log(`📤 RPC request sent to ${queue} with correlation ID: ${correlationId}`);
+      console.log(`📊 sendToQueue result: ${sent}`);
+
+      if (!sent) {
+        reject(new Error(`Failed to send RPC request to queue: ${queue} - sendToQueue returned false`));
+        return;
+      }
+
+      console.log(
+        `📤 RPC request sent to ${queue} with correlation ID: ${correlationId}`
+      );
     });
   }
 
@@ -159,60 +198,84 @@ class RabbitMQSetup {
    */
   async setupRPCConsumer(queue, handler) {
     await this.channel.prefetch(1); // Process one message at a time
-    
-    await this.channel.consume(queue, async (message) => {
-      if (!message) return;
 
-      const correlationId = message.properties.correlationId;
-      const replyTo = message.properties.replyTo;
+    await this.channel.consume(
+      queue,
+      async (message) => {
+        if (!message) return;
 
-      try {
-        console.log(`📥 RPC request received with correlation ID: ${correlationId}`);
-        
-        const request = JSON.parse(message.content.toString());
-        const response = await handler(request);
+        const correlationId = message.properties.correlationId;
+        const replyTo = message.properties.replyTo;
 
-        // Send response back
-        if (replyTo) {
-          await this.channel.sendToQueue(replyTo, Buffer.from(JSON.stringify(response)), {
-            correlationId,
-            persistent: true,
-            timestamp: Date.now()
-          });
-        }
+        try {
+          console.log(
+            `📥 RPC request received with correlation ID: ${correlationId}`
+          );
 
-        this.channel.ack(message);
-        console.log(`✅ RPC response sent for correlation ID: ${correlationId}`);
-      } catch (error) {
-        console.error(`❌ RPC handler error for correlation ID ${correlationId}:`, error);
-        
-        // Send error response
-        if (replyTo) {
-          const errorResponse = {
-            status: 'error',
-            error: error.message,
-            timestamp: new Date().toISOString()
-          };
-          
-          await this.channel.sendToQueue(replyTo, Buffer.from(JSON.stringify(errorResponse)), {
-            correlationId,
-            persistent: true
-          });
-        }
+          const request = JSON.parse(message.content.toString());
+          const response = await handler(request);
 
-        // Send to dead letter queue
-        await this.channel.publish('dead_letter_exchange', 'failed', message.content, {
-          persistent: true,
-          headers: {
-            'x-original-queue': queue,
-            'x-error-reason': error.message,
-            'x-failed-at': new Date().toISOString()
+          // Send response back
+          if (replyTo) {
+            await this.channel.sendToQueue(
+              replyTo,
+              Buffer.from(JSON.stringify(response)),
+              {
+                correlationId,
+                persistent: true,
+                timestamp: Date.now(),
+              }
+            );
           }
-        });
 
-        this.channel.ack(message);
-      }
-    }, { noAck: false });
+          this.channel.ack(message);
+          console.log(
+            `✅ RPC response sent for correlation ID: ${correlationId}`
+          );
+        } catch (error) {
+          console.error(
+            `❌ RPC handler error for correlation ID ${correlationId}:`,
+            error
+          );
+
+          // Send error response
+          if (replyTo) {
+            const errorResponse = {
+              status: "error",
+              error: error.message,
+              timestamp: new Date().toISOString(),
+            };
+
+            await this.channel.sendToQueue(
+              replyTo,
+              Buffer.from(JSON.stringify(errorResponse)),
+              {
+                correlationId,
+                persistent: true,
+              }
+            );
+          }
+
+          // Send to dead letter queue
+          await this.channel.publish(
+            "dead_letter_exchange",
+            "failed",
+            message.content,
+            {
+              persistent: true,
+              headers: {
+                "x-original-queue": queue,
+                "x-error-reason": error.message,
+                "x-failed-at": new Date().toISOString(),
+              },
+            }
+          );
+
+          this.channel.ack(message);
+        }
+      },
+      { noAck: false }
+    );
 
     console.log(`✅ RPC consumer setup for queue: ${queue}`);
   }
@@ -221,16 +284,22 @@ class RabbitMQSetup {
    * Publish message to queue
    */
   async publishMessage(queue, message, options = {}) {
+    if (!this.isConnected || !this.channel) {
+      throw new Error(`RabbitMQ not connected. Connected: ${this.isConnected}, Channel: ${!!this.channel}`);
+    }
+    
     const messageBuffer = Buffer.from(JSON.stringify(message));
     const publishOptions = {
       persistent: true,
       timestamp: Date.now(),
       messageId: this.generateCorrelationId(),
-      ...options
+      ...options,
     };
 
-    await this.channel.sendToQueue(queue, messageBuffer, publishOptions);
+    const result = await this.channel.sendToQueue(queue, messageBuffer, publishOptions);
     console.log(`📤 Message published to ${queue}`);
+    
+    return result;
   }
 
   /**
@@ -239,23 +308,53 @@ class RabbitMQSetup {
   async setupConsumer(queue, handler, options = {}) {
     const consumerOptions = {
       noAck: false,
-      ...options
+      ...options,
     };
 
-    await this.channel.consume(queue, async (message) => {
-      if (!message) return;
+    await this.channel.consume(
+      queue,
+      async (message) => {
+        if (!message) return;
 
-      try {
-        const content = JSON.parse(message.content.toString());
-        await handler(content, message);
-        this.channel.ack(message);
-      } catch (error) {
-        console.error(`❌ Consumer error for queue ${queue}:`, error);
-        
-        // Reject and send to dead letter
-        this.channel.nack(message, false, false);
-      }
-    }, consumerOptions);
+        try {
+          const rawContent = message.content.toString();
+          console.log(`📨 Raw message received on ${queue}:`, rawContent);
+
+          // Use robust JSON parser with automatic fixes
+          const parseResult = JSONParser.safeParseAndValidate(rawContent, [], {
+            attemptFixes: true,
+            logErrors: true,
+            throwOnFailure: true,
+          });
+
+          if (!parseResult.success) {
+            throw new Error(
+              `JSON parsing failed: ${parseResult.errors.join(", ")}`
+            );
+          }
+
+          const content = parseResult.data;
+
+          // Log validation warnings if any
+          if (parseResult.warnings.length > 0) {
+            console.warn(
+              `⚠️ JSON validation warnings for ${queue}:`,
+              parseResult.warnings
+            );
+          }
+
+          await handler(content, message);
+          this.channel.ack(message);
+        } catch (error) {
+          console.error(`❌ Consumer error for queue ${queue}:`, error);
+          console.error(`❌ Message content:`, message.content.toString());
+
+          // Reject and send to dead letter
+          this.channel.nack(message, false, false);
+        }
+      },
+      consumerOptions
+    );
 
     console.log(`✅ Consumer setup for queue: ${queue}`);
   }
@@ -264,9 +363,11 @@ class RabbitMQSetup {
    * Generate unique correlation ID
    */
   generateCorrelationId() {
-    return Math.random().toString(36).substring(2, 15) + 
-           Math.random().toString(36).substring(2, 15) + 
-           Date.now().toString(36);
+    return (
+      Math.random().toString(36).substring(2, 15) +
+      Math.random().toString(36).substring(2, 15) +
+      Date.now().toString(36)
+    );
   }
 
   /**
@@ -275,21 +376,21 @@ class RabbitMQSetup {
   async healthCheck() {
     try {
       if (!this.isConnected || !this.channel) {
-        return { status: 'unhealthy', error: 'Not connected' };
+        return { status: "unhealthy", error: "Not connected" };
       }
 
       // Test channel by checking queue
-      await this.channel.checkQueue('tasks');
-      
+      await this.channel.checkQueue("tasks");
+
       return {
-        status: 'healthy',
+        status: "healthy",
         connection: this.isConnected,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
       };
     } catch (error) {
       return {
-        status: 'unhealthy',
-        error: error.message
+        status: "unhealthy",
+        error: error.message,
       };
     }
   }
@@ -308,9 +409,9 @@ class RabbitMQSetup {
         this.connection = null;
       }
       this.isConnected = false;
-      console.log('✅ RabbitMQ connection closed');
+      console.log("✅ RabbitMQ connection closed");
     } catch (error) {
-      console.error('❌ Error closing RabbitMQ connection:', error);
+      console.error("❌ Error closing RabbitMQ connection:", error);
       // Force cleanup even if close fails
       this.channel = null;
       this.connection = null;
@@ -324,5 +425,5 @@ const rabbitmqSetup = new RabbitMQSetup();
 
 module.exports = {
   RabbitMQSetup,
-  rabbitmq: rabbitmqSetup
+  rabbitmq: rabbitmqSetup,
 };

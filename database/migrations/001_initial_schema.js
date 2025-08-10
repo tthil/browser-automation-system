@@ -6,24 +6,41 @@ const path = require('path');
  * Creates all tables, indexes, and initial data for Browser Automation System
  */
 
-exports.up = async function(knex) {
+exports.up = async function(client) {
+  // Check if tables already exist
+  try {
+    const result = await client.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'public' 
+        AND table_name = 'sessions'
+      );
+    `);
+    
+    const tablesExist = result.rows[0].exists;
+    
+    if (tablesExist) {
+      console.log('✅ Database schema already exists - skipping migration');
+      return;
+    }
+  } catch (error) {
+    console.log('🔄 Unable to check existing tables, proceeding with migration...');
+  }
+  
   // Read and execute the schema SQL file
   const schemaPath = path.join(__dirname, '..', 'schema.sql');
   const schemaSql = fs.readFileSync(schemaPath, 'utf8');
   
-  // Split by semicolon and execute each statement
-  const statements = schemaSql
-    .split(';')
-    .map(stmt => stmt.trim())
-    .filter(stmt => stmt.length > 0 && !stmt.startsWith('--'));
+  // Execute the entire schema as one statement to handle functions properly
+  console.log('🔄 Executing complete database schema via migration...');
   
-  for (const statement of statements) {
-    if (statement.trim()) {
-      await knex.raw(statement);
-    }
+  try {
+    await client.query(schemaSql);
+    console.log('✅ Initial schema migration completed successfully');
+  } catch (error) {
+    console.error('❌ Migration failed:', error.message);
+    throw error;
   }
-  
-  console.log('✅ Initial schema migration completed successfully');
 };
 
 exports.down = async function(knex) {

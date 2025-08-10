@@ -28,3 +28,13 @@ node_modules/
 # tasks.json
 # tasks/ 
 .taskmaster
+task.json
+
+# Temporary and test files
+test-browser.js
+enable-debug-fast-mode.js
+database/schema-fixed.sql
+database/setup.js
+
+# Development utilities
+scripts/test-*

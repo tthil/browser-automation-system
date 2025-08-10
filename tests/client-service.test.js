@@ -63,6 +63,18 @@ describe('Client Service', () => {
       expect(() => clientService.validateSessionData(validSession))
         .not.toThrow();
     });
+
+    test('should accept empty navigations for main page only visits', () => {
+      const validSessionWithEmptyNavigations = {
+        tasks_24h: 100,
+        countries: ['us', 'ca'],
+        main_page_url: 'https://example.com',
+        navigations: [] // Empty array should be allowed
+      };
+      
+      expect(() => clientService.validateSessionData(validSessionWithEmptyNavigations))
+        .not.toThrow();
+    });
   });
 
   describe('Task Distribution', () => {
@@ -147,7 +159,7 @@ describe('Client Service', () => {
       expect(health).toMatchObject({
         status: expect.any(String),
         activeSessions: expect.any(Number),
-        rateManagers: expect.any(Number),
+        rateManager: expect.any(Object),
         timestamp: expect.any(String)
       });
     });

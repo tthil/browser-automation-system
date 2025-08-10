@@ -157,8 +157,92 @@ describe('Worker Service', () => {
   describe('Fingerprinting Integration', () => {
     test('should initialize fingerprint manager', () => {
       expect(workerService.fingerprintManager).toBeDefined();
-      expect(workerService.config.useFingerprinting).toBe(true);
-      expect(workerService.config.fingerprintProfile).toBe('random');
+    });
+
+    test('should apply fingerprints during task execution', async () => {
+      const mockTask = {
+        task_id: 'test-task',
+        main_page_url: 'https://example.com',
+        navigations: [{ action: 'click_first', css: '.test' }],
+        country: 'us'
+      };
+
+      const mockPage = {
+        goto: jest.fn(),
+        waitForTimeout: jest.fn(),
+        close: jest.fn()
+      };
+
+      const mockBrowser = {
+        newPage: jest.fn().mockResolvedValue(mockPage),
+        isConnected: jest.fn().mockReturnValue(true)
+      };
+
+      workerService.browser = mockBrowser;
+      
+      // Mock fingerprint manager
+      workerService.fingerprintManager.applyFingerprint = jest.fn();
+      workerService.fingerprintManager.selectProfile = jest.fn().mockReturnValue('desktop_chrome');
+      
+      // Mock navigation engine
+      workerService.navigationEngine.executeNavigations = jest.fn().mockResolvedValue([]);
+
+      await workerService.executeTask(mockTask);
+
+      expect(workerService.fingerprintManager.selectProfile).toHaveBeenCalled();
+      expect(workerService.fingerprintManager.applyFingerprint).toHaveBeenCalledWith(mockPage, 'desktop_chrome');
+    });
+
+    test('should handle empty navigations for main page only visits', async () => {
+      const mockTask = {
+        task_id: 'test-task-empty-nav',
+        main_page_url: 'https://example.com',
+        navigations: [], // Empty navigations array
+        country: 'us'
+      };
+
+      const mockPage = {
+        goto: jest.fn(),
+        waitForTimeout: jest.fn(),
+        close: jest.fn()
+      };
+
+      const mockBrowser = {
+        newPage: jest.fn().mockResolvedValue(mockPage),
+        isConnected: jest.fn().mockReturnValue(true)
+      };
+
+      workerService.browser = mockBrowser;
+      
+      // Mock fingerprint manager
+      workerService.fingerprintManager.applyFingerprint = jest.fn();
+      workerService.fingerprintManager.selectProfile = jest.fn().mockReturnValue('desktop_chrome');
+      
+      // Mock navigation engine
+      workerService.navigationEngine.executeNavigations = jest.fn().mockResolvedValue([]);
+
+      const result = await workerService.executeTask(mockTask);
+
+      expect(result.main_page_only).toBe(true);
+      expect(result.navigations_completed).toBe(0);
+      expect(result.navigation_results).toHaveLength(1);
+      expect(result.navigation_results[0].action).toBe('main_page_visit');
+      expect(result.navigation_results[0].status).toBe('success');
+      expect(mockPage.waitForTimeout).toHaveBeenCalled(); // Should wait on main page
+    });
+
+    test('should include fingerprint stats in health check', async () => {
+      workerService.fingerprintManager.getProfileStats = jest.fn().mockReturnValue({
+        totalProfiles: 8,
+        currentProfile: 'desktop_chrome'
+      });
+
+      const health = await workerService.healthCheck();
+
+      expect(health.fingerprintManager).toEqual({
+        totalProfiles: 8,
+        currentProfile: 'desktop_chrome'
+      });
     });
 
     test('should get fingerprint profile for task', () => {
